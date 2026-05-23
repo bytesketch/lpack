@@ -1,0 +1,15 @@
+[package]
+name = "lpack"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.6.1", features = ["cargo"] }
+colored = "3.1.1"
+inquire = "0.9.4"
+nix = { version = "0.31.3", features = ["user"] }
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+tempfile = "3.27.0"
+walkdir = "2.5.0"
+zip = "8.6.0"

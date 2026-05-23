@@ -1,0 +1,21 @@
+{
+    "build_path": "target/output",
+    "description": "lpack is a lightweight Linux package manager built for portable, distro-independent .lpk packages.",
+
+    "package": {
+        "name": "lpack",
+        "package": "bytesketch.lpack",
+        "version": "1.0-beta",
+        "authors": ["Ali Ahmad @bytesketch"]
+    },
+
+    "app": {
+        "binary": "lpack",
+        "entry": "lpack"
+    },
+
+    "include": {
+        "target/release/lpack": "lpack",
+        "LICENSE": "LICENSE"
+    }
+}
