@@ -20,7 +20,7 @@ use crate::{
     searcher::{search_all, search_one},
 };
 
-const VERSION: &str = "1.0-beta";
+const VERSION: &str = "1.0-r";
 
 pub struct ConsoleCallback {
     pub errored: bool,
