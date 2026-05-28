@@ -5,10 +5,14 @@ use std::{
     path::{Path, PathBuf},
 };
 use tempfile::tempdir;
+use walkdir::WalkDir;
 use zip::ZipArchive;
 
 use crate::installer::callback::InstallCallback;
 use crate::installer::manifest::{InstallManifest, VersionPart};
+
+const BOLD: &str = "\x1b[1m";
+const RESET: &str = "\x1b[0m";
 
 pub fn deobfuscate(all_bytes: &[u8]) -> Vec<u8> {
     all_bytes
@@ -50,6 +54,19 @@ pub fn copy_dir_all(
     Ok(())
 }
 
+pub fn chmod_recursive(path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    for entry in WalkDir::new(path) {
+        let entry = entry?;
+        let metadata = fs::metadata(entry.path())?;
+        if metadata.is_file() {
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(entry.path(), perms)?;
+        }
+    }
+    Ok(())
+}
+
 pub fn extract_zip(zip_path: &Path, out_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let file: File = File::open(zip_path)?;
     let mut archive: ZipArchive<File> = ZipArchive::new(file)?;
@@ -64,6 +81,9 @@ pub fn extract_zip(zip_path: &Path, out_dir: &Path) -> Result<(), Box<dyn std::e
             }
             let mut outfile: File = File::create(&outpath)?;
             std::io::copy(&mut file, &mut outfile)?;
+            let mut perms = outfile.metadata()?.permissions();
+            perms.set_mode(0o755);
+            fs::set_permissions(&outpath, perms)?;
         }
     }
     Ok(())
@@ -87,8 +107,39 @@ fn internal_install_lpack(
     #[cfg(target_family = "unix")]
     {
         use nix::unistd::Uid;
-        if system_wide && !Uid::effective().is_root() {
+        let is_root = Uid::effective().is_root();
+        if system_wide && !is_root {
             return Err("Root permissions required.".into());
+        }
+
+        if is_root && !system_wide {
+            call.on_some_warn(&format!(
+                "{}WARNING:{} Running lpack as root without '--system-wide'.",
+                BOLD, RESET
+            ));
+
+            call.on_some_warn(&format!(
+                "This package will be installed into:{} {}{}{}",
+                RESET, BOLD, "/root/.lpack", RESET
+            ));
+
+            call.on_some_warn("The installation will only be visible to the root user.");
+
+            let confirm = call.prompt_confirm(
+                &format!("{}Continue with root-local installation?{}", BOLD, RESET),
+                false,
+            );
+
+            if !confirm {
+                call.on_some_warn("Installation aborted by user.");
+
+                return Ok(());
+            }
+
+            call.on_some_warn(&format!(
+                "Proceeding with root-local installation.{}",
+                RESET
+            ));
         }
     }
 
@@ -99,13 +150,10 @@ fn internal_install_lpack(
 
     let temp: tempfile::TempDir = tempdir()?;
     let extract_dir: PathBuf = temp.path().join("extract");
-
     fs::create_dir_all(&extract_dir)?;
-
     call.on_some_info(&format!("Extracting into '{}'", extract_dir.display()));
-
     extract_zip(pack, &extract_dir)?;
-
+    chmod_recursive(&extract_dir)?;
     let manifest_file: PathBuf = extract_dir.join("manifest");
 
     if !manifest_file.is_file() {
@@ -113,9 +161,7 @@ fn internal_install_lpack(
     }
 
     let raw: Vec<u8> = fs::read(&manifest_file)?;
-
     let manifest: InstallManifest = load_manifest(serde_json::from_slice(&deobfuscate(&raw))?)?;
-
     call.on_some_success("Manifest loaded.");
 
     let (base_dir, bin_dir, desk_dir): (PathBuf, PathBuf, PathBuf) = if system_wide {
@@ -188,7 +234,7 @@ fn internal_install_lpack(
     fs::create_dir_all(&base_dir)?;
 
     copy_dir_all(extract_dir.join("app"), &install_dir)?;
-
+    chmod_recursive(&install_dir)?;
     call.on_some_success(&format!("Installed into '{}'", install_dir.display()));
 
     fs::write(
@@ -231,9 +277,7 @@ fn internal_install_lpack(
         fs::create_dir_all(&desk_dir)?;
 
         let desktop_file: PathBuf = desk_dir.join(format!("{}.desktop", manifest.info.package_name));
-
         let icon_path: PathBuf = install_dir.join(&desk.icon);
-
         fs::write(
             &desktop_file,
             format!(
